@@ -1,6 +1,8 @@
 package kakurin.voicerecorderapp.scenes.listRecord
 
+import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -8,17 +10,26 @@ import androidx.databinding.DataBindingUtil
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProviders
-import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
+import com.google.android.exoplayer2.SimpleExoPlayer
+import com.google.android.exoplayer2.source.ProgressiveMediaSource
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory
+import com.google.android.exoplayer2.util.Util
 import kakurin.voicerecorderapp.R
 import kakurin.voicerecorderapp.database.RecordDatabase
+import kakurin.voicerecorderapp.database.RecordDatabaseDao
 import kakurin.voicerecorderapp.database.RecordingItem
 import kakurin.voicerecorderapp.databinding.FragmentListRecordBinding
-import kakurin.voicerecorderapp.scenes.MainActivity
+import kotlinx.android.synthetic.main.fragment_list_record.*
+import kotlinx.coroutines.*
 
 class ListRecordFragment : Fragment() {
-
-    private lateinit var mainActivity: MainActivity
+    private var exoPlayer: SimpleExoPlayer? = null
+    private lateinit var currentItem: RecordingItem
+    private lateinit var dataSource: RecordDatabaseDao
+    private val mJob = Job()
+    private val mUiScope = CoroutineScope(Dispatchers.Main + mJob)
+    private val listRecordDeleteDialog = ListRecordDeleteDialog(::removeRecord)
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -29,7 +40,8 @@ class ListRecordFragment : Fragment() {
 
         val application = requireNotNull(this.activity).application
 
-        val dataSource = RecordDatabase.getInstance(application).recordDatabaseDao
+        dataSource = RecordDatabase.getInstance(application).recordDatabaseDao
+
         val viewModelFactory = ListRecordViewModelFactory(dataSource)
 
         val listRecordViewModel: ListRecordViewModel =
@@ -37,7 +49,7 @@ class ListRecordFragment : Fragment() {
 
         binding.listRecordViewModel = listRecordViewModel
 
-        val adapter = ListRecordAdapter { itemOnClick(it) }
+        val adapter = ListRecordAdapter(::onClick)
         binding.recyclerView.adapter = adapter
 
         listRecordViewModel.records.observe(
@@ -46,23 +58,51 @@ class ListRecordFragment : Fragment() {
 
         binding.lifecycleOwner = this
 
-        mainActivity = activity as MainActivity
-
-
         return binding.root
     }
 
-    private fun createExoPlayer(filePath: String) {
-        val exoPlayer = ExoPlayer.Builder(mainActivity).build()
-        val mediaItem = MediaItem.Builder().setUri(filePath).build()
-        exoPlayer.setMediaItem(mediaItem)
-        exoPlayer.prepare()
-        exoPlayer.play()
+    private fun onClick(item: RecordingItem, mode: Int) {
+        currentItem = item
+        if (mode == 1) {
+            createExoPlayer()
+        } else {
+            listRecordDeleteDialog.show(requireActivity().supportFragmentManager,"ListRecordDeleteDialog")
+        }
     }
 
-    private fun itemOnClick(item: RecordingItem) {
-        val filePath = item.filePath
-        createExoPlayer(filePath)
+    private fun createExoPlayer() {
+        val filePath = currentItem.filePath
+        val mediaItem = MediaItem.Builder().setUri(Uri.parse(filePath)).build()
+        val dataSourceFactory =
+            DefaultDataSourceFactory(
+                requireContext(),
+                Util.getUserAgent(requireContext(), "VoiceRecorderApp")
+            )
+        val mediaSource =
+            ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+        if (exoPlayer == null) {
+            exoPlayer = SimpleExoPlayer.Builder(requireContext()).build()
+        }
+        exoPlayer!!.setMediaSource(mediaSource)
+        exo_player_view.player = exoPlayer
+        exoPlayer!!.prepare()
+        exoPlayer!!.play()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (exoPlayer != null) {
+            exoPlayer!!.stop()
+            exoPlayer!!.release()
+        }
+    }
+
+    private fun removeRecord() {
+        try {
+            mUiScope.launch { withContext(Dispatchers.IO) { dataSource.removeRecord(currentItem.id) } }
+        } catch (e: Exception) {
+            Log.e("RecordService", "exception", e)
+        }
     }
 }
 

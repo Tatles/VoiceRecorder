@@ -3,10 +3,12 @@
 
     <item
         android:id="@+id/recordFragment"
-        android:title="Запись"/>
+        android:icon="@drawable/ic_fiber_new_black_24dp"
+        android:title="@string/record"/>
 
     <item
         android:id="@+id/listRecordFragment"
-        android:title="Мои аудиодорожки"/>
+        android:icon="@drawable/ic_menu_black_24dp"
+        android:title="@string/my_audios"/>
 
 </menu>
